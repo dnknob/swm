@@ -1,0 +1,296 @@
+.\" swm.1 - Simple Window Manager manual page
+.\" groff -man -Tascii swm.1   (to preview)
+.TH SWM 1 "2026-03-13" "swm" "User Commands"
+.\"
+.\" -----------------------------------------------------------------------
+.SH NAME
+swm \- simple floating X11 window manager
+.\"
+.\" -----------------------------------------------------------------------
+.SH SYNOPSIS
+.B swm
+.RI [ config-file ]
+.\"
+.\" -----------------------------------------------------------------------
+.SH DESCRIPTION
+.B swm
+is a minimal floating window manager for X11.
+Windows are placed freely on screen and can be moved, resized, focused,
+and killed via keyboard chords or mouse gestures.
+All behaviour is driven by a plain-text configuration file.
+.PP
+If no
+.I config-file
+argument is given,
+.B swm
+looks for
+.I swm.conf
+in the current working directory.
+.\"
+.\" -----------------------------------------------------------------------
+.SH OPTIONS
+.B swm
+takes no flags.
+The sole optional argument is the path to a configuration file.
+.\"
+.\" -----------------------------------------------------------------------
+.SH CONFIGURATION
+The configuration file is a plain UTF-8 text file.
+Lines beginning with
+.B #
+are comments; blank lines are ignored.
+.SS Settings
+Each setting is written as:
+.PP
+.RS
+.nf
+key = value
+.fi
+.RE
+.PP
+The following settings are recognised:
+.TP
+.B terminal \fR= \fIcommand\fR
+Program launched by the
+.B spawn
+action when no argument is supplied.
+Default:
+.IR xterm .
+.TP
+.B mod \fR= \fImodifier\fR
+Modifier key used in all key bindings.
+Modifiers can be chained without spaces, for example
+.IR mod4shift .
+Recognised tokens:
+.BR mod4 " (Super/Win),"
+.BR mod1 " / " alt " (Alt),"
+.BR ctrl ,
+.BR shift ,
+.BR mod2 ,
+.BR mod3 ,
+.BR mod5 .
+Default:
+.IR mod4 .
+.TP
+.B border_width \fR= \fIpixels\fR
+Border thickness drawn around every window.
+Default:
+.IR 2 .
+.TP
+.B border_color \fR= \fIcolor\fR
+X11 colour (hex or named) of the border on unfocused windows.
+Default:
+.IR #3a3a3a .
+.TP
+.B focus_color \fR= \fIcolor\fR
+X11 colour of the border on the focused window.
+Default:
+.IR #7a9fcf .
+.TP
+.B move_step \fR= \fIpixels\fR
+Distance in pixels a window moves per keyboard step.
+Default:
+.IR 32 .
+.TP
+.B resize_step \fR= \fIpixels\fR
+Distance in pixels a window grows or shrinks per keyboard step.
+Default:
+.IR 32 .
+.SS Key bindings
+Key bindings are written as:
+.PP
+.RS
+.nf
+key \fImodifier\fR \fIXKeysym\fR \fIaction\fR [\fIargument\fR]
+.fi
+.RE
+.PP
+.I XKeysym
+is any symbol recognised by
+.BR XStringToKeysym (3),
+for example
+.IR Return ,
+.IR q ,
+.IR Left ,
+.IR f .
+Run
+.BR xev (1)
+to find the exact name of any key.
+.PP
+The following actions are available:
+.TP
+.B spawn \fR[\fIcommand\fR]
+Fork and execute
+.I command
+via
+.IR /bin/sh .
+If
+.I command
+is omitted, the value of
+.B terminal
+is used.
+.TP
+.B kill
+Close the focused window.
+Uses
+.B WM_DELETE_WINDOW
+if the window supports it; falls back to
+.BR XKillClient (3)
+otherwise.
+.TP
+.B focus_next
+Move focus to the next window in the managed list.
+.TP
+.B focus_prev
+Move focus to the previous window in the managed list.
+.TP
+.B fullscreen
+Toggle fullscreen on the focused window.
+Geometry is saved and restored on each toggle.
+.TP
+.B move \fIdx dy\fR
+Move the focused window by
+.I dx
+pixels horizontally and
+.I dy
+pixels vertically.
+Use negative values to move left or up.
+.TP
+.B resize \fIdw dh\fR
+Resize the focused window by
+.I dw
+pixels in width and
+.I dh
+pixels in height.
+Minimum window size is 64\(mu64 pixels.
+.TP
+.B quit
+Cleanly exit
+.BR swm .
+.\"
+.\" -----------------------------------------------------------------------
+.SH MOUSE BINDINGS
+The following mouse bindings are built-in and not configurable:
+.TP
+.BI mod " + left\-button drag"
+Move the window under the pointer.
+.TP
+.BI mod " + right\-button drag"
+Resize the window under the pointer from the bottom-right corner.
+.PP
+.I mod
+refers to the modifier configured with the
+.B mod
+setting.
+.\"
+.\" -----------------------------------------------------------------------
+.SH DEFAULT BINDINGS
+Unless overridden by the configuration file, the following bindings are
+active after a fresh install:
+.PP
+.TS
+l l.
+\fBmod + Return\fR	Open a new terminal
+\fBmod + d\fR	Run dmenu_run
+\fBmod + q\fR	Kill focused window
+\fBmod + f\fR	Toggle fullscreen
+\fBmod + j\fR	Focus next window
+\fBmod + k\fR	Focus previous window
+\fBmod + Left\fR	Move window left 32 px
+\fBmod + Right\fR	Move window right 32 px
+\fBmod + Up\fR	Move window up 32 px
+\fBmod + Down\fR	Move window down 32 px
+\fBmod + Shift + Left\fR	Shrink window width 32 px
+\fBmod + Shift + Right\fR	Grow window width 32 px
+\fBmod + Shift + Up\fR	Shrink window height 32 px
+\fBmod + Shift + Down\fR	Grow window height 32 px
+\fBmod + Shift + q\fR	Quit swm
+.TE
+.\"
+.\" -----------------------------------------------------------------------
+.SH FILES
+.TP
+.I swm.conf
+Default configuration file, read from the current directory when no path
+is given on the command line.
+.TP
+.I ~/.config/swm/swm.conf
+Recommended per-user location.
+Supply this path explicitly:
+.PP
+.RS
+.nf
+exec swm ~/.config/swm/swm.conf
+.fi
+.RE
+.TP
+.I /usr/share/xsessions/swm.desktop
+Optional session entry for display managers such as
+.BR lightdm (8)
+and
+.BR gdm (8).
+.\"
+.\" -----------------------------------------------------------------------
+.SH EXAMPLES
+Start
+.B swm
+with the default configuration file from the current directory:
+.PP
+.RS
+.nf
+swm swm.conf
+.fi
+.RE
+.PP
+Start
+.B swm
+from
+.BR startx (1)
+with a per-user configuration file:
+.PP
+.RS
+.nf
+echo "exec swm ~/.config/swm/swm.conf" >> ~/.xinitrc
+startx
+.fi
+.RE
+.PP
+Test inside a nested
+.BR Xephyr (1)
+display:
+.PP
+.RS
+.nf
+Xephyr \-ac \-screen 1280x720 \-br :1 &
+DISPLAY=:1 swm ~/.config/swm/swm.conf
+.fi
+.RE
+.\"
+.\" -----------------------------------------------------------------------
+.SH SEE ALSO
+.BR xev (1),
+.BR xterm (1),
+.BR dmenu (1),
+.BR startx (1),
+.BR Xephyr (1),
+.BR xrandr (1),
+.BR setxkbmap (1),
+.BR XStringToKeysym (3)
+.\"
+.\" -----------------------------------------------------------------------
+.SH BUGS
+Mouse drag initiation requires the pointer to be over the window's client
+area; grabbing via the border is not yet supported.
+.PP
+Only one X screen is managed.
+Multi-head setups using separate DISPLAY values or
+.BR Xinerama (3)
+are not handled.
+.PP
+No ICCCM size hints (\fBWM_NORMAL_HINTS\fR) are honoured during resize;
+terminal emulators may display fractional character cells.
+.\"
+.\" -----------------------------------------------------------------------
+.SH AUTHOR
+Written as a minimal reference implementation.
+Patches and bug reports are welcome.
