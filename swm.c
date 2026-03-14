@@ -11,6 +11,7 @@
  *   EnterNotify     → optional sloppy focus
  */
 
+#include <X11/extensions/Xinerama.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/Xatom.h>
@@ -61,6 +62,8 @@ static void          set_focus(WM *wm, Client *c);
 static void          swm_tile(WM *wm);
 static void          swm_restore_float(WM *wm);
 static void          action_tile_toggle(WM *wm, const char *arg);
+static Monitor      *swm_monitor_at(WM *wm, int x, int y);
+static Monitor      *swm_monitor_for_client(WM *wm, Client *c);
 
 static int
 x_error_handler(Display *dpy, XErrorEvent *e)
@@ -98,6 +101,29 @@ swm_init(WM *wm, const char *config_path)
     wm->root   = RootWindow(wm->dpy, wm->screen);
     wm->sw     = DisplayWidth(wm->dpy, wm->screen);
     wm->sh     = DisplayHeight(wm->dpy, wm->screen);
+
+    int xin_n = 0;
+    XineramaScreenInfo *xin = NULL;
+    if (XineramaIsActive(wm->dpy) &&
+        (xin = XineramaQueryScreens(wm->dpy, &xin_n)) != NULL) {
+        wm->nmonitors = (xin_n > SWM_MAX_MONITORS)
+                        ? SWM_MAX_MONITORS : xin_n;
+        for (int i = 0; i < wm->nmonitors; i++) {
+            wm->monitors[i].x     = xin[i].x_org;
+            wm->monitors[i].y     = xin[i].y_org;
+            wm->monitors[i].w     = xin[i].width;
+            wm->monitors[i].h     = xin[i].height;
+            wm->monitors[i].bar_h = 0;
+        }
+        XFree(xin);
+    } else {
+        wm->nmonitors       = 1;
+        wm->monitors[0].x   = 0;
+        wm->monitors[0].y   = 0;
+        wm->monitors[0].w   = wm->sw;
+        wm->monitors[0].h   = wm->sh;
+        wm->monitors[0].bar_h = 0;
+    }
 
     XSetErrorHandler(x_error_start);
     XSelectInput(wm->dpy, wm->root,
@@ -223,8 +249,11 @@ handle_map_request(WM *wm, XMapRequestEvent *e)
         XFree(prop);
         if (type == net_wm_dock || type == net_wm_panel) {
             XMapWindow(wm->dpy, e->window);
-            if ((int)wa.height > wm->bar_h)
-                wm->bar_h = (int)wa.height;
+            Monitor *bm = swm_monitor_at(wm,
+                              wa.x + wa.width  / 2,
+                              wa.y + wa.height / 2);
+            if ((int)wa.height > bm->bar_h)
+                bm->bar_h = (int)wa.height;
             return;
         }
     }
@@ -255,6 +284,21 @@ handle_map_request(WM *wm, XMapRequestEvent *e)
     swa.bit_gravity = NorthWestGravity;
     XChangeWindowAttributes(wm->dpy, e->window,
                             CWBitGravity, &swa);
+
+    {
+        Window rr, cr;
+        int cx = 0, cy = 0, wx, wy;
+        unsigned int pm;
+        XQueryPointer(wm->dpy, wm->root, &rr, &cr,
+                      &cx, &cy, &wx, &wy, &pm);
+        Monitor *mon = swm_monitor_at(wm, cx, cy);
+        if (wa.x == 0 && wa.y == 0) {
+            wa.x = mon->x + (mon->w - wa.width)  / 2;
+            wa.y = mon->y + mon->bar_h
+                   + (mon->h - mon->bar_h - wa.height) / 2;
+            XMoveWindow(wm->dpy, e->window, wa.x, wa.y);
+        }
+    }
 
     Client *c = mng_add(&wm->clients, e->window,
                         wa.x, wa.y,
@@ -473,8 +517,11 @@ static void
 action_fullscreen(WM *wm, const char *arg)
 {
     (void)arg;
+    if (wm->focused == NULL)
+        return;
+    Monitor *m = swm_monitor_for_client(wm, wm->focused);
     mng_toggle_fullscreen(wm->dpy, wm->focused,
-                          wm->sw, wm->sh,
+                          m->x, m->y, m->w, m->h,
                           wm->cfg.border_width);
 }
 
@@ -504,18 +551,31 @@ action_resize(WM *wm, const char *arg)
     mng_resize(wm->dpy, wm->focused, dw, dh);
 }
 
+static Monitor *
+swm_monitor_at(WM *wm, int x, int y)
+{
+    for (int i = 0; i < wm->nmonitors; i++) {
+        Monitor *m = &wm->monitors[i];
+        if (x >= m->x && x < m->x + m->w &&
+            y >= m->y && y < m->y + m->h)
+            return m;
+    }
+    return &wm->monitors[0]; /* fallback to primary */
+}
+
+static Monitor *
+swm_monitor_for_client(WM *wm, Client *c)
+{
+    return swm_monitor_at(wm,
+                          c->x + (int)c->w / 2,
+                          c->y + (int)c->h / 2);
+}
+
 static void
 swm_tile(WM *wm)
 {
-    int n = mng_count(wm->clients);
-    if (n == 0)
-        return;
+    int bw = wm->cfg.border_width * 2;
 
-    int bw      = wm->cfg.border_width * 2;
-    int top     = wm->bar_h;
-    int usable  = wm->sh - top;
-
-    /* Save float geometry before first tile */
     Client *c = wm->clients;
     while (c != NULL) {
         if (!c->tile_saved) {
@@ -528,36 +588,58 @@ swm_tile(WM *wm)
         c = c->next;
     }
 
-    if (n == 1) {
-        mng_move_abs(wm->dpy, wm->clients, 0, top);
-        mng_resize_abs(wm->dpy, wm->clients,
-                       (unsigned int)(wm->sw - bw),
-                       (unsigned int)(usable - bw));
-        return;
-    }
+    for (int mi = 0; mi < wm->nmonitors; mi++) {
+        Monitor *mon = &wm->monitors[mi];
+        int top    = mon->bar_h;
+        int usable = mon->h - top;
 
-    /* Master on left half, stack on right half */
-    int master_w = wm->sw / 2;
-    int stack_w  = wm->sw - master_w;
-    int stack_h  = usable / (n - 1);
-
-    c = wm->clients;
-    int i = 0;
-    while (c != NULL) {
-        if (i == 0) {
-            mng_move_abs(wm->dpy, c, 0, top);
-            mng_resize_abs(wm->dpy, c,
-                           (unsigned int)(master_w - bw),
-                           (unsigned int)(usable - bw));
-        } else {
-            mng_move_abs(wm->dpy, c, master_w,
-                         top + (i - 1) * stack_h);
-            mng_resize_abs(wm->dpy, c,
-                           (unsigned int)(stack_w - bw),
-                           (unsigned int)(stack_h - bw));
+        int n = 0;
+        c = wm->clients;
+        while (c != NULL) {
+            int cx = c->tile_saved_x + (int)c->tile_saved_w / 2;
+            int cy = c->tile_saved_y + (int)c->tile_saved_h / 2;
+            if (swm_monitor_at(wm, cx, cy) == mon)
+                n++;
+            c = c->next;
         }
-        c = c->next;
-        i++;
+
+        if (n == 0)
+            continue;
+
+        int i = 0;
+        c = wm->clients;
+        while (c != NULL) {
+            int cx = c->tile_saved_x + (int)c->tile_saved_w / 2;
+            int cy = c->tile_saved_y + (int)c->tile_saved_h / 2;
+            if (swm_monitor_at(wm, cx, cy) != mon) {
+                c = c->next;
+                continue;
+            }
+
+            if (n == 1) {
+                mng_move_abs(wm->dpy, c, mon->x, mon->y + top);
+                mng_resize_abs(wm->dpy, c,
+                               (unsigned int)(mon->w - bw),
+                               (unsigned int)(usable - bw));
+            } else if (i == 0) {
+                /* Master: left half */
+                mng_move_abs(wm->dpy, c, mon->x, mon->y + top);
+                mng_resize_abs(wm->dpy, c,
+                               (unsigned int)(mon->w / 2 - bw),
+                               (unsigned int)(usable - bw));
+            } else {
+                /* Stack: right half, divided evenly */
+                int stack_h = usable / (n - 1);
+                mng_move_abs(wm->dpy, c,
+                             mon->x + mon->w / 2,
+                             mon->y + top + (i - 1) * stack_h);
+                mng_resize_abs(wm->dpy, c,
+                               (unsigned int)(mon->w - mon->w / 2 - bw),
+                               (unsigned int)(stack_h - bw));
+            }
+            i++;
+            c = c->next;
+        }
     }
 }
 

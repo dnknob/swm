@@ -135,28 +135,27 @@ mng_resize_abs(Display *dpy, Client *c, unsigned int w, unsigned int h)
 
 void
 mng_toggle_fullscreen(Display *dpy, Client *c,
-                      int sw, int sh, int border_width)
+                      int mx, int my, int mw, int mh,
+                      int border_width)
 {
     if (c == NULL)
         return;
 
     if (!c->fullscreen) {
-        /* Save current geometry */
         c->saved_x = c->x;
         c->saved_y = c->y;
         c->saved_w = c->w;
         c->saved_h = c->h;
 
         XSetWindowBorderWidth(dpy, c->win, 0);
-        c->x = 0;
-        c->y = 0;
-        c->w = (unsigned int)sw;
-        c->h = (unsigned int)sh;
+        c->x = mx;
+        c->y = my;
+        c->w = (unsigned int)mw;
+        c->h = (unsigned int)mh;
         XMoveResizeWindow(dpy, c->win, c->x, c->y, c->w, c->h);
         XRaiseWindow(dpy, c->win);
         c->fullscreen = 1;
     } else {
-        /* Restore geometry */
         c->x = c->saved_x;
         c->y = c->saved_y;
         c->w = c->saved_w;

@@ -35,7 +35,8 @@ void mng_resize_abs(Display *dpy, Client *c,
                     unsigned int w, unsigned int h);
 
 void mng_toggle_fullscreen(Display *dpy, Client *c,
-                           int sw, int sh, int border_width);
+                           int mx, int my, int mw, int mh,
+                           int border_width);
 
 void mng_kill(Display *dpy, Client *c);
 

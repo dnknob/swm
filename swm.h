@@ -7,9 +7,10 @@
 #include "mng.h"
 #include "util.h"
 
-#define SWM_MAX_KEYBINDS  64
 #define SWM_MAX_CMD_LEN   256
+#define SWM_MAX_KEYBINDS  64
 #define SWM_MAX_COLOR_LEN  32
+#define SWM_MAX_MONITORS  8
 #define SWM_CONFIG_PATH   "swm.conf"
 
 #define SWM_DEFAULT_TERMINAL   "xterm"
@@ -40,12 +41,20 @@ typedef struct {
 } Config;
 
 typedef struct {
+    int x, y, w, h;
+    int bar_h;                     /* reserved height for dock/panel */
+} Monitor;
+
+typedef struct {
     Display     *dpy;
     Window       root;
     int          screen;
-    int          sw, sh;           /* screen width/height in pixels */
+    int          sw, sh;           /* full virtual screen size */
 
     Config       cfg;
+
+    Monitor      monitors[SWM_MAX_MONITORS];
+    int          nmonitors;
 
     Client      *clients;          /* managed client list (head) */
     Client      *focused;          /* currently focused client */
@@ -64,7 +73,6 @@ typedef struct {
     unsigned long color_focus;
 
     int tiling;                    /* 0 = floating, 1 = tiling */
-    int bar_h;                     /* reserved height for dock/panel */
 } WM;
 
 int  swm_init(WM *wm, const char *config_path);

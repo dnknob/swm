@@ -3,7 +3,7 @@ CFLAGS  = -std=c99 -pedantic \
           -Wall -Wextra -Wshadow -Wstrict-prototypes -Wmissing-prototypes \
           -D_POSIX_C_SOURCE=200809L
 LDFLAGS =
-LIBS    = -lX11
+LIBS    = -lX11 -lXinerama
 
 PREFIX    = /usr/local
 BINDIR    = $(PREFIX)/bin
