@@ -918,15 +918,16 @@ grab_keys(WM *wm)
         KeyCode kc = XKeysymToKeycode(wm->dpy, wm->cfg.keys[i].keysym);
         if (kc == 0)
             continue;
-        XGrabKey(wm->dpy, kc, wm->cfg.keys[i].mod, wm->root,
+                XGrabKey(wm->dpy, kc, wm->cfg.keys[i].mod, wm->root,
                  True, GrabModeAsync, GrabModeAsync);
-        /* Also grab with Num Lock and Caps Lock */
-        XGrabKey(wm->dpy, kc, wm->cfg.keys[i].mod | Mod2Mask,
-                 wm->root, True, GrabModeAsync, GrabModeAsync);
-        XGrabKey(wm->dpy, kc, wm->cfg.keys[i].mod | LockMask,
-                 wm->root, True, GrabModeAsync, GrabModeAsync);
-        XGrabKey(wm->dpy, kc, wm->cfg.keys[i].mod | Mod2Mask | LockMask,
-                 wm->root, True, GrabModeAsync, GrabModeAsync);
+        if (wm->cfg.keys[i].mod != 0) {
+            XGrabKey(wm->dpy, kc, wm->cfg.keys[i].mod | Mod2Mask,
+                     wm->root, True, GrabModeAsync, GrabModeAsync);
+            XGrabKey(wm->dpy, kc, wm->cfg.keys[i].mod | LockMask,
+                     wm->root, True, GrabModeAsync, GrabModeAsync);
+            XGrabKey(wm->dpy, kc, wm->cfg.keys[i].mod | Mod2Mask | LockMask,
+                     wm->root, True, GrabModeAsync, GrabModeAsync);
+        }
     }
 }
 
