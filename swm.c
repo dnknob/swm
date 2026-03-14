@@ -642,6 +642,21 @@ ewmh_init(WM *wm)
                     XA_CARDINAL, 32, PropModeReplace,
                     (unsigned char *)&zero, 1);
 
+    Atom net_supporting = XInternAtom(wm->dpy, "_NET_SUPPORTING_WM_CHECK", False);
+    Window child = XCreateSimpleWindow(wm->dpy, wm->root,
+                                       -1, -1, 1, 1, 0, 0, 0);
+
+    XChangeProperty(wm->dpy, wm->root, net_supporting,
+                    XA_WINDOW, 32, PropModeReplace,
+                    (unsigned char *)&child, 1);
+    XChangeProperty(wm->dpy, child, net_supporting,
+                    XA_WINDOW, 32, PropModeReplace,
+                    (unsigned char *)&child, 1);
+
+    XChangeProperty(wm->dpy, child, e->net_wm_name,
+                    e->utf8_string, 8, PropModeReplace,
+                    (unsigned char *)"swm", 3);
+
     XDeleteProperty(wm->dpy, wm->root, e->net_client_list);
     XDeleteProperty(wm->dpy, wm->root, e->net_active_window);
 }

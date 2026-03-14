@@ -1,5 +1,6 @@
 [Desktop Entry]
 Name=swm
 Comment=Simple Window Manager
-Exec=/usr/local/bin/swm ~/.config/swm/swm.conf
+Exec=/usr/local/bin/swm /home/damien/.config/swm/swm.conf
 Type=XSession
+DesktopNames=swm
