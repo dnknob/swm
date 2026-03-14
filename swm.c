@@ -337,6 +337,9 @@ handle_button_press(WM *wm, XButtonEvent *e)
 
     set_focus(wm, c);
 
+    if (wm->tiling)
+        return;
+
     XRaiseWindow(wm->dpy, c->win);
 
     if (XGrabPointer(wm->dpy, wm->root, False,
@@ -478,7 +481,7 @@ action_fullscreen(WM *wm, const char *arg)
 static void
 action_move(WM *wm, const char *arg)
 {
-    if (wm->focused == NULL)
+    if (wm->focused == NULL || wm->tiling)
         return;
 
     int dx = 0, dy = 0;
@@ -491,7 +494,7 @@ action_move(WM *wm, const char *arg)
 static void
 action_resize(WM *wm, const char *arg)
 {
-    if (wm->focused == NULL)
+    if (wm->focused == NULL || wm->tiling)
         return;
 
     int dw = 0, dh = 0;
