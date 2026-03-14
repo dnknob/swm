@@ -64,6 +64,11 @@ static void          swm_restore_float(WM *wm);
 static void          action_tile_toggle(WM *wm, const char *arg);
 static Monitor      *swm_monitor_at(WM *wm, int x, int y);
 static Monitor      *swm_monitor_for_client(WM *wm, Client *c);
+static void          ewmh_init(WM *wm);
+static void          ewmh_update_client_list(WM *wm);
+static void          ewmh_update_active_window(WM *wm, Client *c);
+static void          ewmh_set_wm_state(WM *wm, Client *c, int fullscreen);
+static void          handle_client_message(WM *wm, XClientMessageEvent *e);
 
 static int
 x_error_handler(Display *dpy, XErrorEvent *e)
@@ -152,6 +157,7 @@ swm_init(WM *wm, const char *config_path)
                 False, ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
                 GrabModeAsync, GrabModeAsync, None, None);
 
+    ewmh_init(wm);
     XSync(wm->dpy, False);
     return 0;
 }
@@ -195,6 +201,9 @@ swm_run(WM *wm)
         case EnterNotify:
             handle_enter_notify(wm, &ev.xcrossing);
             break;
+        case ClientMessage:
+            handle_client_message(wm, &ev.xclient);
+            break;
         default:
             break;
         }
@@ -235,19 +244,18 @@ handle_map_request(WM *wm, XMapRequestEvent *e)
     if (wa.override_redirect)
         return;
 
-    Atom net_wm_type = XInternAtom(wm->dpy, "_NET_WM_WINDOW_TYPE", False);
-    Atom net_wm_dock = XInternAtom(wm->dpy, "_NET_WM_WINDOW_TYPE_DOCK", False);
-    Atom net_wm_panel = XInternAtom(wm->dpy, "_NET_WM_WINDOW_TYPE_PANEL", False);
     Atom actual_type;
     int actual_format;
     unsigned long nitems, bytes_after;
     unsigned char *prop = NULL;
-    if (XGetWindowProperty(wm->dpy, e->window, net_wm_type, 0, 1, False,
+    if (XGetWindowProperty(wm->dpy, e->window,
+                           wm->ewmh.net_wm_window_type, 0, 1, False,
                            XA_ATOM, &actual_type, &actual_format,
                            &nitems, &bytes_after, &prop) == Success && prop) {
         Atom type = *(Atom *)prop;
         XFree(prop);
-        if (type == net_wm_dock || type == net_wm_panel) {
+        if (type == wm->ewmh.net_wm_window_type_dock ||
+            type == wm->ewmh.net_wm_window_type_panel) {
             XMapWindow(wm->dpy, e->window);
             Monitor *bm = swm_monitor_at(wm,
                               wa.x + wa.width  / 2,
@@ -307,12 +315,43 @@ handle_map_request(WM *wm, XMapRequestEvent *e)
     if (c == NULL)
         return;
 
+    {
+        XSizeHints hints;
+        long supplied = 0;
+        if (XGetWMNormalHints(wm->dpy, e->window, &hints, &supplied)) {
+            if (supplied & PBaseSize) {
+                c->base_w = hints.base_width;
+                c->base_h = hints.base_height;
+            }
+            if (supplied & PMinSize) {
+                c->min_w = hints.min_width;
+                c->min_h = hints.min_height;
+            }
+            if (supplied & PMaxSize) {
+                c->max_w = hints.max_width;
+                c->max_h = hints.max_height;
+            }
+            if (supplied & PResizeInc) {
+                c->inc_w = hints.width_inc;
+                c->inc_h = hints.height_inc;
+            }
+        }
+    }
+
     XSelectInput(wm->dpy, e->window,
                  EnterWindowMask | FocusChangeMask | PropertyChangeMask);
 
     grab_buttons(wm, e->window);
 
+    {
+        long desk = 0;
+        XChangeProperty(wm->dpy, e->window, wm->ewmh.net_wm_desktop,
+                        XA_CARDINAL, 32, PropModeReplace,
+                        (unsigned char *)&desk, 1);
+    }
+
     XMapWindow(wm->dpy, e->window);
+    ewmh_update_client_list(wm);
     set_focus(wm, c);
     if (wm->tiling)
         swm_tile(wm);
@@ -424,11 +463,13 @@ handle_motion_notify(WM *wm, XMotionEvent *e)
         c->y = wm->drag_win_y + dy;
         XMoveWindow(wm->dpy, c->win, c->x, c->y);
     } else if (wm->drag_button == Button3) {
-        /* Resize — minimum 64×64 */
         int nw = (int)wm->drag_win_w + dx;
         int nh = (int)wm->drag_win_h + dy;
-        c->w = (unsigned int)(nw < 64 ? 64 : nw);
-        c->h = (unsigned int)(nh < 64 ? 64 : nh);
+        unsigned int w = (unsigned int)(nw < 64 ? 64 : nw);
+        unsigned int h = (unsigned int)(nh < 64 ? 64 : nh);
+        mng_apply_hints(c, &w, &h);
+        c->w = w;
+        c->h = h;
         XResizeWindow(wm->dpy, c->win, c->w, c->h);
     }
 }
@@ -523,6 +564,7 @@ action_fullscreen(WM *wm, const char *arg)
     mng_toggle_fullscreen(wm->dpy, wm->focused,
                           m->x, m->y, m->w, m->h,
                           wm->cfg.border_width);
+    ewmh_set_wm_state(wm, wm->focused, wm->focused->fullscreen);
 }
 
 static void
@@ -549,6 +591,141 @@ action_resize(WM *wm, const char *arg)
         sscanf(arg, "%d %d", &dw, &dh);
 
     mng_resize(wm->dpy, wm->focused, dw, dh);
+}
+
+static void
+ewmh_init(WM *wm)
+{
+    EWMH *e = &wm->ewmh;
+
+    e->net_supported          = XInternAtom(wm->dpy, "_NET_SUPPORTED",          False);
+    e->net_client_list        = XInternAtom(wm->dpy, "_NET_CLIENT_LIST",        False);
+    e->net_active_window      = XInternAtom(wm->dpy, "_NET_ACTIVE_WINDOW",      False);
+    e->net_close_window       = XInternAtom(wm->dpy, "_NET_CLOSE_WINDOW",       False);
+    e->net_wm_name            = XInternAtom(wm->dpy, "_NET_WM_NAME",            False);
+    e->net_wm_state           = XInternAtom(wm->dpy, "_NET_WM_STATE",           False);
+    e->net_wm_state_fullscreen= XInternAtom(wm->dpy, "_NET_WM_STATE_FULLSCREEN",False);
+    e->net_wm_window_type     = XInternAtom(wm->dpy, "_NET_WM_WINDOW_TYPE",     False);
+    e->net_wm_window_type_dock= XInternAtom(wm->dpy, "_NET_WM_WINDOW_TYPE_DOCK",False);
+    e->net_wm_window_type_panel=XInternAtom(wm->dpy, "_NET_WM_WINDOW_TYPE_PANEL",False);
+    e->net_number_of_desktops = XInternAtom(wm->dpy, "_NET_NUMBER_OF_DESKTOPS", False);
+    e->net_current_desktop    = XInternAtom(wm->dpy, "_NET_CURRENT_DESKTOP",    False);
+    e->net_wm_desktop         = XInternAtom(wm->dpy, "_NET_WM_DESKTOP",         False);
+    e->utf8_string            = XInternAtom(wm->dpy, "UTF8_STRING",             False);
+
+    Atom supported[] = {
+        e->net_supported,
+        e->net_client_list,
+        e->net_active_window,
+        e->net_close_window,
+        e->net_wm_name,
+        e->net_wm_state,
+        e->net_wm_state_fullscreen,
+        e->net_wm_window_type,
+        e->net_wm_window_type_dock,
+        e->net_wm_window_type_panel,
+        e->net_number_of_desktops,
+        e->net_current_desktop,
+        e->net_wm_desktop,
+    };
+    XChangeProperty(wm->dpy, wm->root, e->net_supported,
+                    XA_ATOM, 32, PropModeReplace,
+                    (unsigned char *)supported,
+                    (int)(sizeof(supported) / sizeof(Atom)));
+
+    long one  = 1;
+    long zero = 0;
+    XChangeProperty(wm->dpy, wm->root, e->net_number_of_desktops,
+                    XA_CARDINAL, 32, PropModeReplace,
+                    (unsigned char *)&one, 1);
+    XChangeProperty(wm->dpy, wm->root, e->net_current_desktop,
+                    XA_CARDINAL, 32, PropModeReplace,
+                    (unsigned char *)&zero, 1);
+
+    XDeleteProperty(wm->dpy, wm->root, e->net_client_list);
+    XDeleteProperty(wm->dpy, wm->root, e->net_active_window);
+}
+
+static void
+ewmh_update_client_list(WM *wm)
+{
+    Window wins[256];
+    int n = 0;
+    Client *c = wm->clients;
+    while (c != NULL && n < 256) {
+        wins[n++] = c->win;
+        c = c->next;
+    }
+    XChangeProperty(wm->dpy, wm->root, wm->ewmh.net_client_list,
+                    XA_WINDOW, 32, PropModeReplace,
+                    (unsigned char *)wins, n);
+}
+
+static void
+ewmh_update_active_window(WM *wm, Client *c)
+{
+    Window w = c ? c->win : None;
+    XChangeProperty(wm->dpy, wm->root, wm->ewmh.net_active_window,
+                    XA_WINDOW, 32, PropModeReplace,
+                    (unsigned char *)&w, 1);
+}
+
+static void
+ewmh_set_wm_state(WM *wm, Client *c, int fullscreen)
+{
+    if (c == NULL)
+        return;
+    if (fullscreen) {
+        XChangeProperty(wm->dpy, c->win, wm->ewmh.net_wm_state,
+                        XA_ATOM, 32, PropModeReplace,
+                        (unsigned char *)&wm->ewmh.net_wm_state_fullscreen, 1);
+    } else {
+        XDeleteProperty(wm->dpy, c->win, wm->ewmh.net_wm_state);
+    }
+}
+
+static void
+handle_client_message(WM *wm, XClientMessageEvent *e)
+{
+    Client *c = mng_find(wm->clients, e->window);
+
+    if (e->message_type == wm->ewmh.net_active_window) {
+        if (c != NULL && c != wm->focused)
+            set_focus(wm, c);
+        return;
+    }
+
+    if (e->message_type == wm->ewmh.net_close_window) {
+        if (c != NULL)
+            mng_kill(wm->dpy, c);
+        return;
+    }
+
+    if (e->message_type == wm->ewmh.net_wm_state) {
+        if (c == NULL)
+            return;
+
+        long action = e->data.l[0];
+        Atom atom1  = (Atom)e->data.l[1];
+        Atom atom2  = (Atom)e->data.l[2];
+
+        int is_fs = (atom1 == wm->ewmh.net_wm_state_fullscreen ||
+                     atom2 == wm->ewmh.net_wm_state_fullscreen);
+        if (!is_fs)
+            return;
+
+        int should_fs = (action == 1) ||
+                        (action == 2 && !c->fullscreen);
+
+        if (should_fs != c->fullscreen) {
+            Monitor *m = swm_monitor_for_client(wm, c);
+            mng_toggle_fullscreen(wm->dpy, c,
+                                  m->x, m->y, m->w, m->h,
+                                  wm->cfg.border_width);
+            ewmh_set_wm_state(wm, c, c->fullscreen);
+        }
+        return;
+    }
 }
 
 static Monitor *
@@ -685,6 +862,7 @@ set_focus(WM *wm, Client *c)
               wm->focused,
               wm->cfg.border_width);
     wm->focused = c;
+    ewmh_update_active_window(wm, c);
 }
 
 static void
@@ -707,10 +885,13 @@ unmanage(WM *wm, Window win)
         wm->focused = NULL;
         if (next_focus != NULL)
             set_focus(wm, next_focus);
-        else
+        else {
             XSetInputFocus(wm->dpy, wm->root,
                            RevertToPointerRoot, CurrentTime);
+            ewmh_update_active_window(wm, NULL);
+        }
     }
+    ewmh_update_client_list(wm);
 }
 
 static void

@@ -115,10 +115,45 @@ mng_resize(Display *dpy, Client *c, int dw, int dh)
     int nw = (int)c->w + dw;
     int nh = (int)c->h + dh;
 
-    c->w = (unsigned int)(nw < MIN_WIN_SIZE ? MIN_WIN_SIZE : nw);
-    c->h = (unsigned int)(nh < MIN_WIN_SIZE ? MIN_WIN_SIZE : nh);
+    unsigned int w = (unsigned int)(nw < MIN_WIN_SIZE ? MIN_WIN_SIZE : nw);
+    unsigned int h = (unsigned int)(nh < MIN_WIN_SIZE ? MIN_WIN_SIZE : nh);
+
+    mng_apply_hints(c, &w, &h);
+
+    c->w = w;
+    c->h = h;
 
     XResizeWindow(dpy, c->win, c->w, c->h);
+}
+
+void
+mng_apply_hints(Client *c, unsigned int *w, unsigned int *h)
+{
+    if (c == NULL || w == NULL || h == NULL)
+        return;
+
+    int nw = (int)*w;
+    int nh = (int)*h;
+
+    if (c->min_w > 0 && nw < c->min_w) nw = c->min_w;
+    if (c->min_h > 0 && nh < c->min_h) nh = c->min_h;
+    if (c->max_w > 0 && nw > c->max_w) nw = c->max_w;
+    if (c->max_h > 0 && nh > c->max_h) nh = c->max_h;
+
+    if (c->inc_w > 1) {
+        int base = (c->base_w > 0) ? c->base_w : c->min_w;
+        nw = base + ((nw - base) / c->inc_w) * c->inc_w;
+    }
+    if (c->inc_h > 1) {
+        int base = (c->base_h > 0) ? c->base_h : c->min_h;
+        nh = base + ((nh - base) / c->inc_h) * c->inc_h;
+    }
+
+    if (nw < MIN_WIN_SIZE) nw = MIN_WIN_SIZE;
+    if (nh < MIN_WIN_SIZE) nh = MIN_WIN_SIZE;
+
+    *w = (unsigned int)nw;
+    *h = (unsigned int)nh;
 }
 
 void
@@ -127,8 +162,10 @@ mng_resize_abs(Display *dpy, Client *c, unsigned int w, unsigned int h)
     if (c == NULL)
         return;
 
-    c->w = (w < MIN_WIN_SIZE) ? MIN_WIN_SIZE : w;
-    c->h = (h < MIN_WIN_SIZE) ? MIN_WIN_SIZE : h;
+    mng_apply_hints(c, &w, &h);
+
+    c->w = w;
+    c->h = h;
 
     XResizeWindow(dpy, c->win, c->w, c->h);
 }

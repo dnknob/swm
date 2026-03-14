@@ -10,6 +10,7 @@
 #define SWM_MAX_CMD_LEN   256
 #define SWM_MAX_KEYBINDS  64
 #define SWM_MAX_COLOR_LEN  32
+#define SWM_MAX_EWMH_ATOMS 16
 #define SWM_MAX_MONITORS  8
 #define SWM_CONFIG_PATH   "swm.conf"
 
@@ -46,6 +47,23 @@ typedef struct {
 } Monitor;
 
 typedef struct {
+    Atom net_supported;
+    Atom net_client_list;
+    Atom net_active_window;
+    Atom net_close_window;
+    Atom net_wm_name;
+    Atom net_wm_state;
+    Atom net_wm_state_fullscreen;
+    Atom net_wm_window_type;
+    Atom net_wm_window_type_dock;
+    Atom net_wm_window_type_panel;
+    Atom net_number_of_desktops;
+    Atom net_current_desktop;
+    Atom net_wm_desktop;
+    Atom utf8_string;
+} EWMH;
+
+typedef struct {
     Display     *dpy;
     Window       root;
     int          screen;
@@ -73,6 +91,7 @@ typedef struct {
     unsigned long color_focus;
 
     int tiling;                    /* 0 = floating, 1 = tiling */
+    EWMH ewmh;                     /* interned EWMH atoms */
 } WM;
 
 int  swm_init(WM *wm, const char *config_path);

@@ -13,6 +13,12 @@ typedef struct Client {
     int          tile_saved_x, tile_saved_y;
     unsigned int tile_saved_w, tile_saved_h;
     int          tile_saved;
+
+    int          base_w, base_h;
+    int          min_w,  min_h;
+    int          max_w,  max_h;
+    int          inc_w,  inc_h;
+
     struct Client *next;
 } Client;
 
@@ -33,6 +39,9 @@ void mng_move_abs(Display *dpy, Client *c, int x, int y);
 void mng_resize(Display *dpy, Client *c, int dw, int dh);
 void mng_resize_abs(Display *dpy, Client *c,
                     unsigned int w, unsigned int h);
+                    
+void mng_apply_hints(Client *c,
+                     unsigned int *w, unsigned int *h);
 
 void mng_toggle_fullscreen(Display *dpy, Client *c,
                            int mx, int my, int mw, int mh,
